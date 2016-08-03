@@ -84,7 +84,8 @@ type Tasker struct {
 	// Map of tasks names their dependencies. Its keys are identical to tis'.
 	dep_graph map[string][]string
 
-	// Semaphore implemented as a boolean channel. See wait and signal.
+	// Semaphore implemented as a buffered boolean channel. May be unbuffered.
+	// See wait and signal.
 	semaphore chan bool
 
 	// Elements used in cycle detection.
@@ -107,17 +108,18 @@ func (tr *Tasker) signal() {
 }
 
 // NewTasker returns a new Tasker that will run up to n number of tasks
-// simultaneously.
+// simultaneously. If n is 0, there is no such restriction.
 //
-// Returns an error if n is not positive.
+// Returns an error if n is negative.
 func NewTasker(n int) (*Tasker, error) {
-	if n <= 0 {
-		return nil, fmt.Errorf("n must be positive: %d", n)
+	if n < 0 {
+		return nil, fmt.Errorf("n can't be negative: %d", n)
 	}
+
 	tr := &Tasker{
 		make(map[string]*task_info),
 		make(map[string][]string),
-		make(chan bool, n),
+		make(chan bool, n)
 		-1,
 		new_string_stack(),
 		make([][]string, 0),
@@ -318,31 +320,57 @@ func (tr *Tasker) runTask(name string, err_ch chan error) {
 	err_ch <- ti.err
 }
 
-// Run runs all tasks registered through Add in parallel.
-//
-// All tasks are only run once, even if two or more other tasks depend on it.
-// A task will not run if any dependency fails.
-func (tr *Tasker) Run() error {
-	if tr.was_run {
-		return errors.New("tasker: already run")
-	}
-	if err := tr.verify(); err != nil {
-		return err
-	}
-
+// runTasks runs a list of tasks using runTask and waits for them to finish.
+func (tr *Tasker) runTasks(names... string) error {
 	err_ch := make(chan error)
-	for name, _ := range tr.tis {
+	for _, name := range names {
 		go tr.runTask(name, err_ch)
 	}
 
 	// Wait for all tasks to finish. Return the first error encountered.
 	var err error
-	for _ = range tr.tis {
+	for _ = range names {
 		e := <-err_ch
 		if err == nil {
 			err = e
 		}
 	}
-	tr.was_run = true
 	return err
+}
+
+// Run runs a list of tasks registered through Add in parallel. If not tasks
+// are provided, then all tasks are run.
+//
+// All tasks are only run once, even if two or more other tasks depend on it.
+// A task will not run if any dependency fails.
+//
+// The first encountered error from a task is returned. Otherwise, Run returns
+// nil.
+func (tr *Tasker) Run(names... string) error {
+	if tr.was_run {
+		return errors.New("tasker: already run")
+	}
+
+	if err := tr.verify(); err != nil {
+		return err
+	}
+
+	if len(names) == 0 {
+		names = make([]string, 0)
+		for name, _ := range tr.tis {
+			names = append(names, name)
+		}
+	} else {
+		// Validate the provided tasks.
+		for _, name := range names {
+			if _, ok := tr.tis[name]; !ok {
+				return fmt.Errorf("tasker: task not found: %s", name)
+			}
+		}
+	}
+
+	// This function must not be called again at this point.
+	tr.was_run = true
+
+	return tr.runTasks(names)
 }
