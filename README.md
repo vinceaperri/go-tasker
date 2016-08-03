@@ -11,8 +11,7 @@ Setup a tasker to run with only up to 5 tasks at a time:
 tr := tasker.NewTasker(5)
 ```
 
-or, if you're feeling ambitious, configure it with no limitation on the number
-of tasks it can run at a time:
+or, if you're feeling ambitious, configure it without that limitation:
 
 ```go
 tr := tasker.NewTasker(-1)
@@ -22,10 +21,10 @@ Add a few tasks, making sure that all dependencies are also added. The ordering
 of these calls doesn't matter.
 
 ```go
-tr.Add("d", nil, func() error { fmt.Println("d"); return nil })
+tr.Add("d", nil,                func() error { fmt.Println("d"); return nil })
 tr.Add("a", []string{"b", "c"}, func() error { fmt.Println("a"); return nil })
-tr.Add("b", nil, func() error { fmt.Println("b"); return nil })
-tr.Add("c", []string{"d"}, func() error { fmt.Println("c"); return nil })
+tr.Add("b", nil,                func() error { fmt.Println("b"); return nil })
+tr.Add("c", []string{"d"},      func() error { fmt.Println("c"); return nil })
 ```
 
 Putting it all together:
@@ -95,8 +94,8 @@ Although c and b could have just as easily been switched:
 2016/08/03 13:03:09 a
 ```
 
-In case you were wondering, log is used above instead of fmt in the tasks
-because it's thread-safe.
+In case you were wondering, log is used above instead of fmt because log is
+thread-safe.
 
 ## Invalid Dependency Graphs
 
@@ -112,9 +111,10 @@ The second problem is that there might be a dependency cycle among the tasks.
 but cycles involving more than one task can't be detected as easily. Instead,
 `Run` checks for these multi-task cycles using
 [Tarjan's Algorithm](https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm)
-for linear performance. It's been modified slightly to return multi-task cycles
-only, since tasks with no dependencies are valid and tasks that depend on
-themselves are taken care of by `Add`.
+for linear performance. It's been modified slightly, however, to return
+multi-task cycles only: tasks with no dependencies are just as valid as any
+other task, and those obnoxious tasks that depend on themselves are squelched
+by `Add`.
 
 ## Documentation
 
