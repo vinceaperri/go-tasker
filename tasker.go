@@ -84,7 +84,7 @@ type Tasker struct {
 	// Map of tasks names their dependencies. Its keys are identical to tis'.
 	dep_graph map[string][]string
 
-	// Semaphore implemented as a buffered boolean channel. May be unbuffered.
+	// Semaphore implemented as a buffered boolean channel. May be nil.
 	// See wait and signal.
 	semaphore chan bool
 
@@ -99,27 +99,36 @@ type Tasker struct {
 
 // wait signals that a task is running and blocks until it may be run.
 func (tr *Tasker) wait() {
-	tr.semaphore <- true
+	if tr.semaphore != nil {
+		tr.semaphore <- true
+	}
 }
 
 // signal signals that a task is done.
 func (tr *Tasker) signal() {
-	<-tr.semaphore
+	if tr.semaphore != nil {
+		<-tr.semaphore
+	}
 }
 
 // NewTasker returns a new Tasker that will run up to n number of tasks
-// simultaneously. If n is 0, there is no such restriction.
+// simultaneously. If n is -1, there is no such restriction.
 //
-// Returns an error if n is negative.
+// Returns an error if n is invalid.
 func NewTasker(n int) (*Tasker, error) {
-	if n < 0 {
-		return nil, fmt.Errorf("n can't be negative: %d", n)
+	if n < -1 || n == 0 {
+		return nil, fmt.Errorf("n must be positive or -1: %d", n)
 	}
+
+	var semaphore chan bool
+	if n > 0 {
+		semaphore = make(chan bool, n)
+	} // else semaphore is nil
 
 	tr := &Tasker{
 		make(map[string]*task_info),
 		make(map[string][]string),
-		make(chan bool, n)
+		semaphore,
 		-1,
 		new_string_stack(),
 		make([][]string, 0),
@@ -344,7 +353,7 @@ func (tr *Tasker) runTasks(names... string) error {
 // All tasks are only run once, even if two or more other tasks depend on it.
 // A task will not run if any dependency fails.
 //
-// The first encountered error from a task is returned. Otherwise, Run returns
+// The last error from a task is returned. Otherwise, Run returns
 // nil.
 func (tr *Tasker) Run(names... string) error {
 	if tr.was_run {
@@ -372,5 +381,5 @@ func (tr *Tasker) Run(names... string) error {
 	// This function must not be called again at this point.
 	tr.was_run = true
 
-	return tr.runTasks(names)
+	return tr.runTasks(names...)
 }
